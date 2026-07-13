@@ -4,7 +4,7 @@
 **Event:** Built with Claude — Life Sciences Hackathon (Researcher Track)
 **License:** MIT
 
-### 📄 [**Read the full technical report (PDF)**](report/unified_paper_full.pdf) &nbsp;·&nbsp; 🔴 [**Live demo**](https://alexlee--cell-world-model-demo-web.modal.run)
+### 📄 [**Read the full technical report (PDF)**](report/unified_paper_full.pdf)
 
 Single-cell biology is fragmented: expression, morphology, spatial context, and
 time are measured on different platforms, with no shared coordinate system. This
