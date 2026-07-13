@@ -1,0 +1,18 @@
+{
+  "encoder_expr_recon_r2": 0.5743092894554138,
+  "encoder_expr_recon_shuffle": -0.5738377571105957,
+  "encoder_morph_r2": 0.016256093978881836,
+  "encoder_morph_shuffle": -0.2800023555755615,
+  "encoder_spatial_r2": 0.33102405071258545,
+  "encoder_spatial_shuffle": -0.343197226524353,
+  "time_transfer_rho": 0.49515726970661483,
+  "time_shuffle_rho": 0.053,
+  "diffusion_gap_w3": 0.1729082465171814,
+  "diffusion_sharp": 0.07364916056394577,
+  "diffusion_cell_specific": true,
+  "diffusion_gap_source": "200k UNIFIED model, epoch-80 checkpoint (job 1f6f148d, 128 held-out cells). Training stopped at ep80/120 (loss converged ~0.0233). DISTINCT from the completed 40k raw-expression CFG run (best_gap=0.173).",
+  "real_sharp": 0.032,
+  "n_cells": 200000,
+  "n_genes": 422,
+  "sdim": 128
+}

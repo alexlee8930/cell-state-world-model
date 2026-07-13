@@ -1,0 +1,17 @@
+{
+  "n_cells": 3133,
+  "common_genes": 175,
+  "sdim": 128,
+  "dist_from_0d": {
+    "0": 0.0,
+    "8": 2.5334088802337646,
+    "24": 4.7763285636901855,
+    "72": 5.5757222175598145,
+    "168": 6.559982776641846
+  },
+  "spearman_time_rho": 0.49515726970661483,
+  "spearman_p": 1.667576727885829e-193,
+  "shuffle_rho_mean": -0.001,
+  "shuffle_rho_max_abs": 0.053,
+  "interpretation": "Xenium-trained encoder projects EMT time-series into same state S; time forms real monotone trajectory (rho=0.50), killed by shuffle"
+}

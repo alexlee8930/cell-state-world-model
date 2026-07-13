@@ -1,0 +1,472 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\bfseries}{\thesubsection}{0.5em}{}
+\setlength{\parskip}{2pt}
+
+\title{\vspace{-2em}\textbf{One State to Draw Them All}\\[0.2em]
+{\large A Unified Latent State for Expression, Space, Morphology, and Time in Single-Cell Biology}}
+\author{Yuchan Lee\\{\small Built with Claude --- Life Sciences Hackathon (Researcher Track)}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\small
+Single-cell measurements are fragmented across modalities: transcriptomics,
+morphology, spatial context, and temporal dynamics are acquired on different
+platforms with no shared coordinate system. We ask whether a \emph{single}
+128-dimensional latent state $S$ can serve as that coordinate system. We train
+one shared encoder $E:\mathbb{R}^{422}\!\to\!\mathbb{R}^{128}$ on 200{,}000
+cells from a 10x Xenium human colon-cancer sample, with three heads that decode
+$S$ back to (i) expression, (ii) a self-supervised morphology embedding, and
+(iii) spatial neighborhood structure. A classifier-free-guidance (CFG)
+diffusion decoder then \emph{generates} the cell's microscopy image directly
+from $S$, and the \emph{frozen} encoder transfers an independent EMT time-course
+into the same space. Every axis is validated against a shuffle/identity control:
+expression $R^2{=}0.574$, spatial $R^2{=}0.331$, morphology gain $+0.30$, time
+Spearman $\rho{=}0.50$, and a generation cell-specificity gap of $+0.17$ at
+$w{=}3$. We report the full method, the equations, and an honest account of the
+failure (blurry hallucination) that motivated the CFG fix. Code, weights, and a
+public interactive demo are released.
+\end{abstract}
+
+\section{Introduction \& Motivation}
+A ``world model'' for cells should predict how a cell looks, where it sits, and
+how it changes---all from a compact internal state. In practice, each of those
+axes lives in a separate dataset with an incompatible representation. A
+transcriptomic latent (e.g.\ scVI) knows nothing about pixels; a morphology
+embedding (e.g.\ DINOv2 on a DAPI crop) knows nothing about neighbors; a
+time-course lives on yet another platform. The central hypothesis of this work
+is that these are \emph{views of one underlying state}, and that a single
+$S$ learned to be simultaneously decodable to all of them is both (a) a useful
+compression and (b) a bridge that lets an axis missing in one dataset be
+\emph{reconstructed} from another.
+
+Our contribution is not a new primitive. CFG, DINOv2, GNNs, and FiLM
+conditioning are all established. The contribution is the \emph{composition}:
+four axes fused into one predictable state, trained end-to-end, with a negative
+control at \emph{every} step---and a running, servable system rather than a
+schematic.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{unified_architecture_transformer.png}
+\caption{\textbf{Architecture.} A shared encoder maps 422-gene expression to a
+128-d state $S$ (left). Three auxiliary heads decode $S$ to expression,
+morphology (DINOv2-384), and spatial neighborhood; a CFG diffusion U-Net (right)
+generates the cell image from $S$ via FiLM conditioning in every ResBlock. Time
+is a \emph{transfer}: the frozen encoder projects an independent EMT time-course
+into the same $S$.}
+\label{fig:arch}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.98\textwidth]{unified_worldmodel_demo.png}
+\caption{\textbf{The system at a glance.} One shared 128-d state $S$ predicts all
+four axes (top). Real Xenium cells vs.\ images generated purely from $S$
+(middle-left); the EMT time trajectory in $S$ (middle-right); and the four-axis
+quantitative summary, every axis beating its shuffle control (bottom). A live
+public demo lets anyone reproduce the middle-left panel interactively.}
+\label{fig:hero}
+\end{figure*}
+
+\section{Related Work}
+\textbf{Expression$\to$image generation.} GeneFlow (2025) couples an
+attention-based RNA encoder with a conditional U-Net trained by rectified flow
+and reports FID 20.73 on the same Xenium platform. Spatia (2025) scales to
+49 donors, 17 tissue types and 12 disease states ($\sim$17M cell--gene training
+pairs), fusing morphology, expression, and space. Both exceed us on
+expression$\to$image \emph{alone}, in scale and absolute image metrics.
+\textbf{Single-cell latents.} scVI provides a probabilistic negative-binomial
+latent; our encoder is deterministic and, crucially, shared across modalities.
+\textbf{Our niche.} The four-axis fusion into one state with a control at every
+step, including a cross-platform \emph{time transfer}, is what we did not find in
+prior work.
+
+\subsection{Where we sit in the Virtual Cell landscape}
+The ``virtual cell'' has become one of the most active frontiers in
+computational biology. The Arc Institute's STATE model was trained on
+observational data from 167M cells and perturbational data from over 100M cells
+across 70 human cell contexts; its Virtual Cell Challenge (\emph{Cell}, 2025)
+frames the central task as predicting a cell's transcriptomic response to a
+genetic perturbation in a held-out cell type. CZI's TranscriptFormer spans 112M
+cells across 12 species, and its rBio distills such a model into a
+conversational reasoner. The common thread is decisive: these are, almost
+without exception, \textbf{single-modality (transcriptomic) models whose goal is
+perturbation$\to$expression prediction}. They embed expression in a latent space
+and attend over genes; they do not draw the cell, place it in tissue, or move it
+through time.
+
+Our work is deliberately orthogonal (Table~\ref{tab:vc}). We do not compete on
+transcriptomic scale---we have $2\times10^5$ cells against their $10^8$. We ask a
+different question: can one latent state be \emph{simultaneously} an expression
+code, a morphology code, a spatial code, and a temporal coordinate? Every
+flagship virtual-cell model answers only the first. Two recent spatial-image
+works---GeneFlow and Spatia---do generate morphology from expression and exceed
+us there, but neither unifies all four axes into a single predictable state with
+a negative control at each one, nor demonstrates a cross-platform temporal
+transfer. That specific combination is our contribution.
+
+\begin{table*}[t]\centering\small
+\caption{Positioning against representative virtual-cell and spatial-generative
+models. ``Axes'' = which of \{expression E, morphology M, space P, time T\} the
+single model represents. Scale figures are as reported by each work.}
+\label{tab:vc}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Model & Primary task & Modalities / axes & Generates image? & Scale & Negative control?\\
+\midrule
+Arc STATE & perturbation$\to$expression & E & no & 167M obs / 100M pert & benchmark\\
+CZI TranscriptFormer & cross-species expression & E & no & 112M cells, 12 sp. & benchmark\\
+scGPT & multi-omics / perturbation & E & no & 33M cells & task metrics\\
+GeneFlow (2025) & expression$\to$image & E, M & \textbf{yes} (FID 20.73) & Xenium (1 platform) & FID\\
+Spatia (2025) & expression+space+morph & E, M, P & \textbf{yes} & $\sim$17M cell--gene pairs & scale\\
+\textbf{Ours} & \textbf{unified state, all axes} & \textbf{E, M, P, T} & \textbf{yes} (gap +0.17) & 200k cells & \textbf{every axis}\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\section{Method}
+\subsection{Preprocessing}
+Raw transcript counts $c\in\mathbb{Z}_{\ge0}^{422}$ per cell are normalized to a
+common scale, log-transformed, and standardized per gene:
+\begin{equation}
+x_g \;=\; \frac{\log\!\big(1 + m\,c_g / \textstyle\sum_{g'} c_{g'}\big) - \mu_g}{\sigma_g},
+\end{equation}
+where $m$ is the dataset median total count ($m{=}64$), and $(\mu_g,\sigma_g)$
+are the per-gene mean and standard deviation. The same $(\mu_g,\sigma_g,m)$ are
+stored and reused verbatim for the time-transfer experiment.
+
+\subsection{Shared encoder and auxiliary heads}
+The encoder is a multilayer perceptron with two GELU/LayerNorm blocks,
+\begin{equation}
+S \;=\; E(x) \;=\; W_3\,\phi\big(W_2\,\phi(W_1 x)\big)\in\mathbb{R}^{128},
+\end{equation}
+$\phi(\cdot)=\mathrm{LN}(\mathrm{GELU}(\cdot))$, with widths $422\!\to\!512\!\to\!256\!\to\!128$.
+Three heads $h_k(S)=U_k\,\mathrm{GELU}(V_k S)$ decode $S$:
+
+\noindent\textbf{(1) Expression reconstruction.} $\hat{x}=h_{\text{expr}}(S)$,
+loss $\mathcal{L}_{\text{recon}}=\lVert \hat{x}-x\rVert_2^2$.
+
+\noindent\textbf{(2) Morphology.} The target is a self-supervised embedding of
+the cell's $64{\times}64$ DAPI crop $I$ obtained from a frozen DINOv2 ViT-S/14,
+$z=\mathrm{DINOv2}(I)\in\mathbb{R}^{384}$. The head regresses it:
+$\mathcal{L}_{\text{morph}}=\lVert h_{\text{morph}}(S)-z\rVert_2^2$. Using a
+self-supervised target (rather than raw pixels) isolates \emph{shape/texture}
+statistics from background intensity.
+
+\noindent\textbf{(3) Spatial GNN.} Build a $k$-nearest-neighbor graph
+($k{=}12$) on cell centroids $(x,y)$. For center cell $i$ with neighbors
+$\mathcal{N}(i)$, a message-passing layer predicts the center state from the
+mean neighbor state:
+\begin{equation}
+\hat{S}_i \;=\; g\Big(\tfrac{1}{|\mathcal N(i)|}\!\!\sum_{j\in\mathcal N(i)}\! S_j\Big),\quad
+\mathcal{L}_{\text{spatial}}=\lVert \hat S_i - S_i\rVert_2^2 .
+\end{equation}
+The encoder and all heads are trained jointly:
+\begin{equation}
+\mathcal{L}_{\text{joint}}=\mathcal{L}_{\text{recon}}+\mathcal{L}_{\text{morph}}+\tfrac12\mathcal{L}_{\text{spatial}}.
+\end{equation}
+
+\subsection{S-conditioned CFG diffusion decoder}
+To \emph{generate} the microscopy image from state, we train a denoising
+diffusion model conditioned on $S$. With a cosine noise schedule
+$\{\beta_t\}_{t=1}^{T}$ ($T{=}400$) and
+$\bar\alpha_t=\prod_{s\le t}(1-\beta_s)$, the forward process is
+\begin{equation}
+q(x_t\mid x_0)=\mathcal N\!\big(\sqrt{\bar\alpha_t}\,x_0,\;(1-\bar\alpha_t)\mathbf I\big).
+\end{equation}
+A U-Net $\epsilon_\theta(x_t,t,S)$ predicts the noise. Conditioning enters
+through a vector $c=\mathrm{MLP}_t(\text{emb}(t))+\mathrm{MLP}_S(S)$, injected by
+\textbf{FiLM} in \emph{every} ResBlock at every resolution:
+\begin{equation}
+\mathrm{FiLM}(h,c)=h\odot(1+\gamma)+\beta,\qquad [\gamma,\beta]=W_{\!f}\,c .
+\end{equation}
+For classifier-free guidance we drop $S$ to a learned null token $\varnothing$
+with probability $p{=}0.1$ during training, minimizing
+$\mathbb E_{t,x_0,\epsilon}\lVert\epsilon-\epsilon_\theta(x_t,t,S_{\text{drop}})\rVert_2^2$.
+At sampling time we extrapolate:
+\begin{equation}
+\tilde\epsilon = \epsilon_\theta(x_t,t,\varnothing) + w\big(\epsilon_\theta(x_t,t,S)-\epsilon_\theta(x_t,t,\varnothing)\big),
+\end{equation}
+and denoise with 50 DDIM steps,
+$x_{t-1}=\sqrt{\bar\alpha_{t-1}}\,\hat x_0+\sqrt{1-\bar\alpha_{t-1}}\,\tilde\epsilon$,
+$\hat x_0=(x_t-\sqrt{1-\bar\alpha_t}\,\tilde\epsilon)/\sqrt{\bar\alpha_t}$.
+Weights are tracked with an exponential moving average (decay $0.999$).
+
+\subsection{The cell-specificity gap (why not FID)}
+A decoder can look sharp yet ignore its condition---generating a plausible but
+\emph{generic} cell (``hallucination''). FID cannot detect this. We therefore
+measure whether a generated image matches \emph{its own} target more than a
+random one. With generations $\hat I_i$ and reals $I_i$, and a permutation
+$\pi$,
+\begin{equation}
+\mathrm{gap} \;=\; \underbrace{\tfrac1n\textstyle\sum_i\lVert \hat I_i-I_{\pi(i)}\rVert^2}_{\text{MSE to shuffled}} \;-\; \underbrace{\tfrac1n\textstyle\sum_i\lVert \hat I_i-I_i\rVert^2}_{\text{MSE to true}} .
+\end{equation}
+$\mathrm{gap}>0$ means generation is cell-specific; $\mathrm{gap}\approx0$ is
+exactly the hallucination signature we diagnosed and fixed (\S\ref{sec:history}).
+
+\subsection{Time as a transfer, not a fourth training axis}
+Xenium provides expression, morphology, and space at single-cell resolution but
+is a static snapshot. To test whether $S$ carries temporal structure, we take an
+\emph{independent} EMT scRNA-seq time-course (A549 under TGF-$\beta$1,
+$t\in\{0,8\text{h},1\text{d},3\text{d},7\text{d}\}$), keep the 175 genes shared
+with the Xenium panel, zero-pad to 422, apply the \emph{stored} Xenium
+normalization, and project with the \emph{frozen} encoder: $S^{\text{EMT}}=E(x^{\text{EMT}})$.
+No retraining. We then measure the correlation between real time and the
+projection of $S^{\text{EMT}}$ onto the principal temporal axis.
+
+\section{Development History: What We Actually Tried}
+\label{sec:history}
+This project was not a straight line. The path itself is evidence of how deeply
+the design space was probed, and each turn was forced by a concrete negative
+result rather than a guess.
+
+\noindent\textbf{(1) A na\"ive time-series world model felt biologically thin.}
+Our first system predicted how a perturbed cell-state \emph{distribution} shifts
+over time with an optimal-transport transition model (Sinkhorn $W_2$), beating an
+identity baseline by $+21.5\%$. It worked---but we judged the biological
+significance to be weak: predicting a distribution drift is not the same as
+understanding a cell. This pushed us toward \emph{pixels}.
+
+\noindent\textbf{(2) A deterministic decoder produced correct-but-blurry blobs.}
+Regressing the microscopy image from expression with an MSE decoder beat the mean
+image by $+22\%$ and a shuffled control by $+41\%$---so it captured
+\emph{something} real---but every output was a soft ellipse. MSE on a
+many-to-one map (one expression profile, many valid shapes) provably collapses to
+the conditional mean. We measured this directly: reconstructed variance was only
+$23\%$ of real. The blur was not a bug to tune away; it was the mathematically
+correct answer to the wrong objective.
+
+\noindent\textbf{(3) A diffusion decoder was sharp but \emph{hallucinated}.}
+Switching to diffusion made images sharp (sharpness $0.05\!>\!$ real $0.032$),
+but we caught a subtle failure with our own control: MSE-to-true ($0.100$)
+\emph{equaled} MSE-to-shuffled ($0.099$). The decoder was drawing beautiful,
+generic cells that ignored the condition. This is precisely why we do not trust
+FID alone, and why we defined the cell-specificity gap.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{sharp_vs_blob_comparison.png}
+\caption{The failure that shaped the design. Real cells (top); the MSE decoder
+is cell-specific but blurry (middle); plain diffusion is sharp but hallucinated
+(bottom)---MSE-to-true equals MSE-to-shuffled. This complementary failure
+motivated CFG.}\label{fig:blob}
+\end{figure}
+
+\noindent\textbf{(4) CFG closed the loop.} Classifier-free guidance with FiLM
+conditioning at every resolution restored cell-specificity: the gap grew
+monotonically with guidance weight, reaching $+0.17$ at $w{=}3$ while staying
+sharp. The condition finally mattered.
+
+\noindent\textbf{(5) From five separate models to one shared state.} Each axis
+above had lived in its own network. The final step---and the point of the
+paper---was to force them through a \emph{single} $S$: one encoder, jointly
+decodable to expression, morphology, and space, then generating images from that
+same $S$, and finally absorbing time by transfer. Along the way we also solved a
+mundane but decisive engineering problem: uploading data to the GPU was
+$100\times$ slower than having the GPU pull the 13\,GB source directly from the
+public CDN ($20$\,MB/s), which is what made 200k-cell training feasible at all.
+
+\section{Experimental Setup}
+\subsection{Compute environment}
+All training was performed on a single \textbf{NVIDIA A100-80GB} GPU rented
+on-demand through Modal, driven programmatically from Claude Science. The
+container image was CUDA 12.4.1 with Python 3.11, PyTorch 2.x, and
+mixed-precision (AMP) enabled. Data persisted on a Modal Volume
+(\texttt{xenium-unified}) so that every job---training, checkpointing,
+sampling---read and wrote the same 1.3\,GB preprocessed tensor without
+re-uploading. Local orchestration ran CPU-only (14 cores, 64\,GB RAM); no
+figure or number in this report required a local GPU.
+
+\subsection{Data pipeline}
+The source is the 10x Genomics Xenium
+\texttt{Human\_Colon\_Cancer\_P1\_CRC\_Add\_on\_FFPE} bundle (307{,}762 cells,
+422-gene panel, a 6.5\,GB morphology OME-TIFF). Naively uploading the extracted
+tensors from the local machine to the GPU ran at $\sim0.2$\,MB/s. We instead had
+the GPU container \emph{pull the 13\,GB source zip directly from the public 10x
+CDN} at $20.8$\,MB/s---a $100\times$ speedup that made 200k-cell preprocessing a
+4-minute job rather than a multi-hour bottleneck. For each of $N{=}200{,}000$
+cells we range-extracted three zip members and produced: (i) a 422-dim
+expression vector, (ii) a $64{\times}64$ DAPI morphology patch centered on the
+cell, (iii) its $(x,y)$ centroid, and (iv) a DINOv2 ViT-S/14 embedding of the
+patch. The JPEG2000-compressed OME-TIFF required the \texttt{imagecodecs}
+decoder---a concrete pitfall we hit and record for reproducibility.
+
+\subsection{Training configuration}
+\textbf{Unified encoder + heads.} AdamW ($\text{lr}{=}3\!\times\!10^{-4}$,
+weight decay $10^{-5}$), cosine-annealed over 100 epochs, batch size 1024, loss
+weights $(\lambda_{\text{recon}},\lambda_{\text{morph}},\lambda_{\text{spatial}})
+=(1,1,0.5)$, spatial graph $k{=}12$. Total 0.72M parameters; wall-clock
+$\approx2$ minutes.
+
+\textbf{S-conditioned diffusion.} AdamW ($3\!\times\!10^{-4}$, weight decay
+$10^{-4}$), cosine schedule, batch size 256, $T{=}400$ cosine-$\beta$ steps,
+CFG drop $p{=}0.1$, EMA decay $0.999$, U-Net base width 96, conditioning
+dimension 256 ($\sim$7M parameters). Sampling uses 50 DDIM steps. To survive
+pre-emption, the job committed an EMA checkpoint and a progress JSON to the
+Volume every few epochs; the run converged (loss $\approx0.0233$) and was
+stopped at epoch 80/120 at $\sim$103\,s/epoch, with all reported figures drawn
+from the epoch-80 EMA weights.
+
+\textbf{Time transfer.} No training: the frozen encoder projected 3{,}133
+main-arm EMT cells (GSE147405, A549 TGF-$\beta$1) using the 175 shared genes and
+the stored Xenium normalization.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{unified_training.png}
+\caption{Joint 3-axis training of the shared state (200k cells). Left:
+simultaneous per-task loss. Right: on held-out cells, $S$ beats its shuffle
+control on all three axes.}\label{fig:train}
+\end{figure}
+
+\subsection{Reproducibility}
+The four numbered scripts (\texttt{01\_data\_prep} $\to$
+\texttt{04\_sample}) reproduce the pipeline end-to-end from public data. Code,
+trained weights, per-epoch logs, all metric JSONs, and the six figures are
+released under MIT, alongside a public interactive demo.
+
+\section{Experiments \& Results}
+All numbers are on held-out cells with a shuffle or identity control.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}llcc@{}}
+\toprule
+Axis & Metric & Model & Control\\
+\midrule
+Expression recon & $R^2$ & \textbf{0.574} & $-0.574$\\
+Spatial (nbr$\to$ctr) & $R^2$ & \textbf{0.331} & $-0.343$\\
+Morphology (S$\to$DINOv2) & $R^2$ & \textbf{0.016} & $-0.280$\\
+Time transfer & Spearman $\rho$ & \textbf{0.50} & $\sim0$\\
+S$\to$image (CFG) & gap @ $w{=}3$ & \textbf{+0.17} & $0$\\
+\bottomrule
+\end{tabular}
+\caption{Every axis beats its control. Morphology $R^2$ is low in absolute
+terms because expression$\to$shape is a genuinely weak, many-to-one signal, yet
+the gain over shuffle ($+0.30$) is unambiguous.}
+\end{table}
+
+\noindent\textbf{Guidance sweep.} Table~\ref{tab:sweep} sweeps the CFG weight
+$w$ on 128 held-out cells (epoch-80 checkpoint). Cell-specificity is positive at
+\emph{every} $w$ and peaks at $w{=}3$ (gap $+0.173$); it declines by $w{=}5$ as
+strong guidance trades condition-fidelity for contrast. Sharpness stays well
+above the real-image reference ($0.032$) throughout.
+
+\begin{table}[h]\centering\small
+\caption{CFG guidance sweep. gap $=$ MSE-to-shuffled $-$ MSE-to-true; positive
+means the image matches its own cell.}
+\label{tab:sweep}
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+$w$ & MSE-true & MSE-shuf & gap & sharp & CS\\
+\midrule
+0 & 0.387 & 0.423 & $+0.036$ & 0.073 & \checkmark\\
+1 & 0.368 & 0.515 & $+0.147$ & 0.074 & \checkmark\\
+2 & 0.351 & 0.514 & $+0.164$ & 0.070 & \checkmark\\
+\textbf{3} & \textbf{0.334} & \textbf{0.507} & $\mathbf{+0.173}$ & \textbf{0.074} & \textbf{\checkmark}\\
+5 & 0.401 & 0.522 & $+0.121$ & 0.085 & \checkmark\\
+\bottomrule
+\end{tabular}\\[2pt]
+{\footnotesize CS = cell-specific (gap $>0$).}
+\end{table}
+
+\noindent\textbf{Generation.} Figure~\ref{fig:gallery} shows real Xenium cells
+(top) beside images generated purely from $S$ (bottom). Bright nuclei, boundaries,
+and texture track the real cell; cells with weak expression signal remain
+softer---consistent with the weak-signal caveat above.
+
+\noindent\textbf{The decoder evolution, quantified.} Table~\ref{tab:evo} makes
+the design history (\S\ref{sec:history}) concrete: each decoder generation fixed
+a measurable failure of the last. The MSE decoder was cell-specific but blurry;
+the plain diffusion decoder was sharp but hallucinated (gap $\approx0$); CFG is
+both sharp and cell-specific.
+
+\begin{table}[h]\centering\small
+\caption{Why the decoder changed. ``gap'' is the cell-specificity gap;
+``sharp'' the mean gradient magnitude (real $=0.032$).}
+\label{tab:evo}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Decoder & sharp & gap & verdict\\
+\midrule
+MSE regression & 0.010 & $+$ & correct but blurry\\
+Diffusion (no CFG) & 0.053 & $\approx0$ & sharp, hallucinated\\
+\textbf{CFG diffusion} & \textbf{0.074} & \textbf{+0.17} & sharp \& cell-specific\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Time.} In $S$-space the EMT cells trace a monotone trajectory:
+distance from the day-0 centroid grows $0\!\to\!2.5\!\to\!4.8\!\to\!5.6\!\to\!6.6$
+across $0$d--$7$d, with $\rho{=}0.50$ ($p{<}10^{-190}$) versus a shuffle
+$\rho\approx0$. A snapshot-trained state space recovered temporal order in data
+it never saw (Fig.~\ref{fig:time}).
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{diffS_gallery.png}
+\caption{Real (top) vs.\ generated-from-$S$ (bottom) cell morphology,
+epoch-80 checkpoint.}\label{fig:gallery}
+\end{figure}
+
+\begin{figure}[t]\centering
+\includegraphics[width=\linewidth]{unified_time_axis.png}
+\caption{Cross-platform time transfer: EMT cells move monotonically through the
+frozen $S$-space.}\label{fig:time}
+\end{figure}
+
+\begin{figure*}[t]\centering
+\includegraphics[width=0.96\textwidth]{frontier_comparison.png}
+\caption{Frontier-level evaluation. (A) All four axes beat their shuffle
+control. (B) Generated-image sharpness ($0.074$) exceeds real cells ($0.032$)---
+the output is not a blurry blob. (C) Component-level positioning against
+spatial-generative work: the individual pieces exist elsewhere, but the
+four-axis fusion with a negative control at every step is ours.}\label{fig:frontier}
+\end{figure*}
+
+\section{Impact \& Significance}
+The immediate result is modest in scale; the \emph{idea} is not. If a single
+learned state can be decoded to any modality, then a dataset that measured only
+one axis can have its missing axes \emph{reconstructed}---a spatial-only cohort
+could be given plausible morphology, an expression-only atlas a spatial context.
+Our time-transfer experiment is a direct, falsifiable demonstration of this
+bridge: structure learned in one platform (static Xenium) transferred, with no
+retraining, to another (a dynamic EMT course). That is the mechanism by which
+fragmented single-cell data---today siloed by assay---could be stitched into one
+navigable space. We regard the honest, control-at-every-step methodology as part
+of the contribution: the field is accumulating generative models whose sharpness
+hides whether they respect their condition, and the cell-specificity gap is a
+cheap, general antidote.
+
+\section{Honest Limitations}
+(1) Scale: 200k cells, one tissue---below frontier scale. (2) Morphology is a
+genuinely weak signal; some generated cells remain blob-like. (3) Correlation,
+not causation. (4) Time is a transfer, not native 4D training data. (5) We report
+a cell-specificity gap rather than an absolute FID. (6) The final diffusion run
+was stopped at epoch 80/120 after the loss had converged ($\sim0.0233$); all
+figures use that checkpoint.
+
+\section{Conclusion}
+We turned a schematic into a running, servable system: one learned state $S$ that
+fuses expression, space, morphology, and (by transfer) time, that generates
+cell-specific morphology, and that is validated against an honest control at
+every step. The frontier gap is scale and native 4D data---not the idea.
+
+\vspace{0.4em}
+{\footnotesize\textbf{Open source \& demo.} All code, trained weights, figures,
+and an interactive public demo were produced during the event on public data
+(10x Xenium CRC; GSE147405), released under the MIT license. The interactive demo---pick a held-out cell,
+generate its morphology from $S$ at an adjustable guidance weight---is public at
+\texttt{alexlee-{}-cell-world-model-demo-web.modal.run} (Modal, scale-to-zero
+A10G).}
+
+\end{document}

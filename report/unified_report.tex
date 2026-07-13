@@ -1,0 +1,127 @@
+\documentclass[10pt,twocolumn]{article}
+\usepackage[margin=0.7in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\titleformat{\section}{\normalfont\large\bfseries\color{black!85}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{black!70}}{\thesubsection}{0.5em}{}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\definecolor{accent}{RGB}{142,68,173}
+
+\title{\vspace{-2.5em}\textbf{\Large One State to Draw Them All}\\[0.2em]
+\large A Unified Cell-State World Model Fusing Expression, Space, Morphology, and Time}
+\author{\textbf{Yuchan Lee}\\ \small Built with Claude: Life Sciences --- Researcher Track}
+\date{\vspace{-1em}\small July 2026}
+
+\begin{document}
+\twocolumn[
+\maketitle
+\begin{center}
+\vspace{-1.5em}
+\begin{minipage}{0.92\textwidth}
+\small\itshape
+\textbf{Abstract.} Single-cell biology is fragmented across modalities that never share a coordinate system: expression lives in one dataset, morphology in another, spatial context in a third, and time in a fourth. We build a \emph{single trained network} in which one 128-dimensional latent state $S$ is shared across all four axes. On 200{,}000 cells from a 10x Xenium colon-cancer sample, a shared encoder maps expression to $S$, and multiple heads decode $S$ back to expression, to self-supervised morphology embeddings, and to spatial neighborhood structure --- each beating a shuffled control on held-out cells. A classifier-free-guidance diffusion decoder generates sharp, \emph{cell-specific} images directly from $S$, and the same frozen encoder transfers an independent EMT time-course into $S$, where cells trace a monotone trajectory (Spearman $\rho{=}0.50$, shuffle $\approx 0$). The result is not a schematic --- it is a running system that turns four disconnected biological data types into one predictable state space, with an honest negative control at every step.
+\end{minipage}
+\end{center}
+\vspace{1em}
+]
+
+\section{Motivation \& Impact}
+A cell has an expression profile, a shape, neighbors, and a trajectory through time. In practice these are measured on \emph{different platforms, in different experiments, on different cells} --- there is no shared axis to move between them. That fragmentation is the core obstacle to a genuine ``cell world model.''
+
+Our claim is concrete: \textbf{if the four axes share one learned state $S$, then any axis can be predicted from any measurement that maps into $S$, and axes that were never co-measured (e.g.\ time) can be transferred in.} This matters because it converts isolated datasets into a common substrate --- a step toward simulating how a perturbation reshapes expression, morphology, and neighborhood \emph{together}, and how that state evolves over time. The entire analysis was carried out during the hackathon on public data.
+
+\section{Method}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:e1f66740-6a92-451c-993a-ff979c700469}}}
+\caption{Unified architecture. A shared encoder maps 422-gene expression to a 128-d state $S$; four task heads all decode the \emph{same} $S$. Time enters via a frozen-encoder transfer path.}
+\label{fig:arch}
+\end{figure}
+
+\textbf{Shared state.} An encoder $E$ maps expression $x\in\mathbb{R}^{422}$ (CP-median $+\log1p+z$-score) through $512\!\to\!256\!\to\!128$ residual GELU blocks to the state $S$ (Fig.~\ref{fig:arch}). Three heads read $S$: expression reconstruction ($S\!\to\!422$), morphology ($S\!\to$ DINOv2-384), and a spatial GNN (mean-aggregated neighbor $S\!\to$ center $S$). The three losses share $E$, forcing $S$ to encode all three axes jointly. Trained on 200k cells (A100-80GB, EMA, cosine LR, AMP).
+
+\textbf{Morphology generation from $S$.} A diffusion decoder conditioned on $S$ (not raw expression) generates $64{\times}64$ cell images, using classifier-free guidance (CFG, condition-dropout $p{=}0.1$), FiLM injection at every UNet resolution, EMA, and a 50-step DDIM sampler. CFG is what forces the generator to \emph{use} $S$ rather than hallucinate a generic cell.
+
+\textbf{Time transfer.} The trained encoder is frozen and applied to an entirely separate dataset --- GSE147405 EMT (A549 + TGFB1, 0d$\to$7d) --- via 175 shared genes, projecting those cells into the same $S$.
+
+\textbf{Infrastructure (Claude Science).} Claude Science drove the whole pipeline: dataset discovery, a Modal GPU backend, and --- critically --- a fix for an upload bottleneck by having the remote sandbox pull the raw Xenium bundle straight from the 10x CDN at 20\,MB/s into a persistent Volume, bypassing a $\sim$0.2\,MB/s proxy. Every model was trained through agent-dispatched A100 jobs.
+
+\section{Results}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:8b08d700-43d1-4d8c-9ca3-a56c9e335b6e}}}
+\caption{Joint training. All three axes decoded from the shared $S$ beat a shuffled control on held-out cells.}
+\label{fig:train}
+\end{figure}
+
+\textbf{The shared state carries all three native axes.} On 8{,}000 held-out cells, every head beats its shuffle control (Fig.~\ref{fig:train}, Table~\ref{tab:res}): expression reconstruction $R^2{=}0.574$, spatial GNN $R^2{=}0.331$, morphology $R^2{=}0.016$ (a real but weak signal, gain $+0.30$ over shuffle). A single $S$ demonstrably encodes expression, spatial, and morphological structure at once.
+
+\begin{table}[t]
+\centering\small
+\caption{Held-out performance; every axis beats its shuffle control.}
+\label{tab:res}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Task (from shared $S$) & real & shuffle & gain\\
+\midrule
+Expression recon ($R^2$) & \textbf{0.574} & $-0.574$ & $+1.15$\\
+Spatial GNN ($R^2$) & \textbf{0.331} & $-0.343$ & $+0.67$\\
+Morphology ($R^2$) & 0.016 & $-0.280$ & $+0.30$\\
+Time transfer ($\rho$) & \textbf{0.50} & $\approx 0$ & --- \\
+$S\!\to$image (gap@w3) & \textbf{+0.17} & 0 & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:98789ee8-5719-4243-967d-7b3b3b62e87e}}}
+\caption{$S\!\to$image generation. Real cells (top of each pair) vs.\ generated from the state $S$ (bottom). Nuclei, boundaries, and brightness track the true cell; some low-signal cells remain blob-like (honest caveat).}
+\label{fig:gen}
+\end{figure}
+
+\textbf{Generation from $S$ is sharp and cell-specific.} The CFG diffusion decoder driven by $S$ produces images sharper than real (laplacian $0.07$ vs.\ $0.032$) that are \emph{cell-specific}: MSE-to-true $<$ MSE-to-shuffle at every guidance weight, with the gap growing to $+0.17$ at $w{=}3$ (epoch-80 checkpoint; Fig.~\ref{fig:gen}). This closes the loop --- expression $\to$ learned $S$ $\to$ correct cell morphology --- with no hallucination, the failure mode of a plain DDPM baseline we diagnosed and fixed.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:72913772-94d1-415d-a69d-50b90caea25f}}}
+\caption{Time transfer. A Xenium-trained encoder projects an independent EMT time-course into $S$; distance from the 0d centroid grows monotonically and correlates with time ($\rho{=}0.50$), destroyed by shuffling.}
+\label{fig:time}
+\end{figure}
+
+\textbf{A fourth axis transfers in.} Projecting the independent EMT dataset through the frozen encoder, cells move monotonically away from the 0d centroid ($0\!\to\!2.5\!\to\!4.8\!\to\!5.6\!\to\!6.6$) and their position along the EMT axis correlates with time ($\rho{=}0.50$, $p<10^{-190}$; shuffle $\rho\approx0$, Fig.~\ref{fig:time}). A state space learned on one dataset captures the temporal structure of another --- direct evidence for the core hypothesis of stitching in a missing axis.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:d32113ee-18cd-4a88-8e02-0160fbbc0051}}}
+\caption{Unified demonstration: one shared $S$ predicts all four axes in a single network.}
+\label{fig:demo}
+\end{figure}
+
+\section{Where This Sits (Honest Positioning)}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{{{!artifact:f64528bf-dc34-433c-ac53-485e062fbc64}}}
+\caption{Frontier positioning. Individual components are established; the unmet niche is fusing four axes (+time transfer) into one predictable state with a negative control at every step.}
+\label{fig:frontier}
+\end{figure}
+Every building block --- CFG, DINOv2, GNNs, a shared encoder --- is established. On expression-to-image alone, GeneFlow (FID 20.73, same Xenium platform) and Spatia (49 donors, 17 tissue types, 12 disease states; $\sim$17M cell-gene training pairs; morphology+expression+space) exceed us in scale and absolute metrics (Fig.~\ref{fig:frontier}). \textbf{Our unexplored niche is the combination:} four axes --- expression, space, morphology, and a \emph{transferred} time axis --- fused into one predictable state $S$, with a shuffle/identity/type-only negative control at \emph{every} step. That discipline, and diagnosing then fixing hallucination via CFG, is the craft here.
+
+\section{Honest Limitations}
+(1) Scale: 200k cells, one tissue --- below frontier scale. (2) Morphology is a genuinely weak signal (many-to-one expression$\to$shape); some generated cells remain blob-like. (3) Correlation, not causation. (4) Time is a \emph{transfer}, not native 4D data (EMT is a separate platform). (5) No absolute FID; validation is held-out MSE/shuffle gaps.
+
+\section{Conclusion}
+We turned a schematic into a running system: one learned state $S$ that fuses expression, space, morphology, and (by transfer) time, generates cell-specific morphology, and is validated against an honest control at every step. The frontier gap is scale and native 4D data --- not the idea.
+
+\vspace{0.4em}
+{\footnotesize\textbf{Open source \& reproducibility.} All code, trained weights, and figures were produced during the event on public data (10x Xenium CRC; GSE147405) via Claude Science + Modal A100, and are released under an OSI-approved license.}
+
+\end{document}
