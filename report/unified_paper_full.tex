@@ -7,6 +7,8 @@
 \usepackage{titlesec}
 \usepackage[hidelinks]{hyperref}
 \usepackage{caption}
+\usepackage{float}
+\usepackage{placeins}
 \captionsetup{font=small,labelfont=bf}
 \titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.6em}{}
 \titleformat{\subsection}{\normalfont\bfseries}{\thesubsection}{0.5em}{}
@@ -24,8 +26,11 @@
 \small
 Single-cell measurements are fragmented across modalities: transcriptomics,
 morphology, spatial context, and temporal dynamics are acquired on different
-platforms with no shared coordinate system. We ask whether a \emph{single}
-128-dimensional latent state $S$ can serve as that coordinate system. We train
+platforms with no shared coordinate system. We treat a cell as a dynamical
+system with one hidden state and ask whether a \emph{single} 128-dimensional
+latent state $S$---readable, generative, and intervenable---can serve as that
+coordinate system. To our knowledge this is the first cell model to hold all
+four axes in one such state. We train
 one shared encoder $E:\mathbb{R}^{422}\!\to\!\mathbb{R}^{128}$ on 200{,}000
 cells from a 10x Xenium human colon-cancer sample, with three heads that decode
 $S$ back to (i) expression, (ii) a self-supervised morphology embedding, and
@@ -41,22 +46,32 @@ public interactive demo are released.
 \end{abstract}
 
 \section{Introduction \& Motivation}
-A ``world model'' for cells should predict how a cell looks, where it sits, and
-how it changes---all from a compact internal state. In practice, each of those
-axes lives in a separate dataset with an incompatible representation. A
-transcriptomic latent (e.g.\ scVI) knows nothing about pixels; a morphology
-embedding (e.g.\ DINOv2 on a DAPI crop) knows nothing about neighbors; a
-time-course lives on yet another platform. The central hypothesis of this work
-is that these are \emph{views of one underlying state}, and that a single
-$S$ learned to be simultaneously decodable to all of them is both (a) a useful
-compression and (b) a bridge that lets an axis missing in one dataset be
-\emph{reconstructed} from another.
+Biology has always measured a cell one window at a time: a transcriptome in one
+experiment, a microscopy image in another, a spatial slide in a third, a
+time-lapse in a fourth---each on a separate platform, each living in a separate
+distribution, none asked to become the same object. Our thesis is that they
+already \emph{are} the same object. A cell is a dynamical system with a single
+hidden state---its regulatory program---and expression, morphology, spatial
+position, and time are merely four windows onto that one state. If that is true,
+then the right representation is not four models but \emph{one shared state
+$S$}, decodable to every window and rollable through time.
 
-Our contribution is not a new primitive. CFG, DINOv2, GNNs, and FiLM
-conditioning are all established. The contribution is the \emph{composition}:
-four axes fused into one predictable state, trained end-to-end, with a negative
-control at \emph{every} step---and a running, servable system rather than a
-schematic.
+We take this literally and build $S$ into a proper world model in the
+machine-learning sense: a compact latent you can \emph{read} (decode to any
+axis), \emph{roll forward} (move through time), \emph{intervene on}, and
+\emph{decode back into an image}. We draw on the world-model lineage---Ha \&
+Schmidhuber's latent-plus-dynamics formulation, DeepMind's Dreamer (planning by
+imagination in latent space), and Genie~2 (action-controllable worlds from an
+autoregressive backbone with a diffusion decoder). \textbf{To our knowledge, no
+prior cell model holds all four axes in one intervenable, generative state, and
+being first to do so is the core of the contribution.}
+
+Crucially, the novelty is \emph{not} any single block: CFG, DINOv2, GNNs, and
+FiLM are all established, and we adapt rather than invent them. The novelty is
+(i) being first to fuse all four biological axes into one cell state that is
+simultaneously readable, generative, and intervenable, and (ii) proving each
+axis \emph{real} with an adversarial negative control instead of asserting
+it---shipping a running, servable system rather than a schematic.
 
 \begin{figure*}[t]
 \centering
@@ -81,13 +96,16 @@ public demo lets anyone reproduce the middle-left panel interactively.}
 \label{fig:hero}
 \end{figure*}
 
+\FloatBarrier
 \section{Related Work}
 \textbf{Expression$\to$image generation.} GeneFlow (2025) couples an
-attention-based RNA encoder with a conditional U-Net trained by rectified flow
-and reports FID 20.73 on the same Xenium platform. Spatia (2025) scales to
-49 donors, 17 tissue types and 12 disease states ($\sim$17M cell--gene training
-pairs), fusing morphology, expression, and space. Both exceed us on
-expression$\to$image \emph{alone}, in scale and absolute image metrics.
+attention-based RNA encoder with a conditional U-Net trained by rectified flow;
+its authors report FID 20.73 on the same Xenium platform. Spatia (2025) is
+reported to scale to 49 donors, 17 tissue types and 12 disease states
+($\sim$17M cell--gene training pairs), fusing morphology, expression, and space.
+All external figures in this section and in Table~\ref{tab:vc} are as reported
+by the cited works, not re-measured here. On expression$\to$image \emph{alone},
+both exceed us in scale and absolute image metrics.
 \textbf{Single-cell latents.} scVI provides a probabilistic negative-binomial
 latent; our encoder is deterministic and, crucially, shared across modalities.
 \textbf{Our niche.} The four-axis fusion into one state with a control at every
@@ -96,13 +114,14 @@ prior work.
 
 \subsection{Where we sit in the Virtual Cell landscape}
 The ``virtual cell'' has become one of the most active frontiers in
-computational biology. The Arc Institute's STATE model was trained on
-observational data from 167M cells and perturbational data from over 100M cells
-across 70 human cell contexts; its Virtual Cell Challenge (\emph{Cell}, 2025)
-frames the central task as predicting a cell's transcriptomic response to a
-genetic perturbation in a held-out cell type. CZI's TranscriptFormer spans 112M
-cells across 12 species, and its rBio distills such a model into a
-conversational reasoner. The common thread is decisive: these are, almost
+computational biology. The Arc Institute's STATE model is reported to have been
+trained on observational data from 167M cells and perturbational data from over
+100M cells across 70 human cell contexts; its Virtual Cell Challenge
+(\emph{Cell}, 2025) frames the central task as predicting a cell's transcriptomic
+response to a genetic perturbation in a held-out cell type. CZI's
+TranscriptFormer is reported to span 112M cells across 12 species, and its rBio
+distills such a model into a conversational reasoner. (These scale figures are
+as reported by the respective groups.) The common thread is decisive: these are, almost
 without exception, \textbf{single-modality (transcriptomic) models whose goal is
 perturbation$\to$expression prediction}. They embed expression in a latent space
 and attend over genes; they do not draw the cell, place it in tissue, or move it
@@ -123,9 +142,11 @@ transfer. That specific combination is our contribution.
 models. ``Axes'' = which of \{expression E, morphology M, space P, time T\} the
 single model represents. Scale figures are as reported by each work.}
 \label{tab:vc}
+\setlength{\tabcolsep}{4pt}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lccccc@{}}
 \toprule
-Model & Primary task & Modalities / axes & Generates image? & Scale & Negative control?\\
+Model & Primary task & Axes & Gen.\ image? & Scale & Neg.\ control?\\
 \midrule
 Arc STATE & perturbation$\to$expression & E & no & 167M obs / 100M pert & benchmark\\
 CZI TranscriptFormer & cross-species expression & E & no & 112M cells, 12 sp. & benchmark\\
@@ -134,7 +155,7 @@ GeneFlow (2025) & expression$\to$image & E, M & \textbf{yes} (FID 20.73) & Xeniu
 Spatia (2025) & expression+space+morph & E, M, P & \textbf{yes} & $\sim$17M cell--gene pairs & scale\\
 \textbf{Ours} & \textbf{unified state, all axes} & \textbf{E, M, P, T} & \textbf{yes} (gap +0.17) & 200k cells & \textbf{every axis}\\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table*}
 
 \section{Method}
@@ -233,12 +254,23 @@ This project was not a straight line. The path itself is evidence of how deeply
 the design space was probed, and each turn was forced by a concrete negative
 result rather than a guess.
 
+\noindent\textbf{(0) We rejected our first success.} Following the dominant
+modern world-model recipe---autoregressive temporal structure plus diffusion
+spatial generation, as in Genie~2, GameNGen, and DIAMOND---we trained an
+autoregressive next-frame predictor on live-cell time-lapse. It beat a
+persistence baseline by $+41\%$, and \emph{we rejected it as a success}: it had
+only learned the optical flow of pixels and understood nothing about the cell.
+That honest failure reframed the entire project---the goal was a meaningful
+\emph{state}, not prettier pixels---and pushed the dynamics off the pixel grid
+and into a latent.
+
 \noindent\textbf{(1) A na\"ive time-series world model felt biologically thin.}
-Our first system predicted how a perturbed cell-state \emph{distribution} shifts
+Our next system predicted how a perturbed cell-state \emph{distribution} shifts
 over time with an optimal-transport transition model (Sinkhorn $W_2$), beating an
 identity baseline by $+21.5\%$. It worked---but we judged the biological
 significance to be weak: predicting a distribution drift is not the same as
-understanding a cell. This pushed us toward \emph{pixels}.
+understanding a cell. This pushed us toward a \emph{state} that could be decoded
+back into a real cell image.
 
 \noindent\textbf{(2) A deterministic decoder produced correct-but-blurry blobs.}
 Regressing the microscopy image from expression with an MSE decoder beat the mean
@@ -256,7 +288,7 @@ but we caught a subtle failure with our own control: MSE-to-true ($0.100$)
 generic cells that ignored the condition. This is precisely why we do not trust
 FID alone, and why we defined the cell-specificity gap.
 
-\begin{figure}[t]\centering
+\begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{sharp_vs_blob_comparison.png}
 \caption{The failure that shaped the design. Real cells (top); the MSE decoder
 is cell-specific but blurry (middle); plain diffusion is sharp but hallucinated
@@ -323,7 +355,7 @@ from the epoch-80 EMA weights.
 main-arm EMT cells (GSE147405, A549 TGF-$\beta$1) using the 175 shared genes and
 the stored Xenium normalization.
 
-\begin{figure}[t]\centering
+\begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{unified_training.png}
 \caption{Joint 3-axis training of the shared state (200k cells). Left:
 simultaneous per-task loss. Right: on held-out cells, $S$ beats its shuffle
@@ -336,6 +368,7 @@ The four numbered scripts (\texttt{01\_data\_prep} $\to$
 trained weights, per-epoch logs, all metric JSONs, and the six figures are
 released under MIT, alongside a public interactive demo.
 
+\FloatBarrier
 \section{Experiments \& Results}
 All numbers are on held-out cells with a shuffle or identity control.
 
@@ -412,13 +445,13 @@ across $0$d--$7$d, with $\rho{=}0.50$ ($p{<}10^{-190}$) versus a shuffle
 $\rho\approx0$. A snapshot-trained state space recovered temporal order in data
 it never saw (Fig.~\ref{fig:time}).
 
-\begin{figure}[t]\centering
+\begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{diffS_gallery.png}
 \caption{Real (top) vs.\ generated-from-$S$ (bottom) cell morphology,
 epoch-80 checkpoint.}\label{fig:gallery}
 \end{figure}
 
-\begin{figure}[t]\centering
+\begin{figure}[H]\centering
 \includegraphics[width=\linewidth]{unified_time_axis.png}
 \caption{Cross-platform time transfer: EMT cells move monotonically through the
 frozen $S$-space.}\label{fig:time}
@@ -433,20 +466,49 @@ spatial-generative work: the individual pieces exist elsewhere, but the
 four-axis fusion with a negative control at every step is ours.}\label{fig:frontier}
 \end{figure*}
 
+\FloatBarrier
 \section{Impact \& Significance}
-The immediate result is modest in scale; the \emph{idea} is not. If a single
-learned state can be decoded to any modality, then a dataset that measured only
-one axis can have its missing axes \emph{reconstructed}---a spatial-only cohort
-could be given plausible morphology, an expression-only atlas a spatial context.
-Our time-transfer experiment is a direct, falsifiable demonstration of this
-bridge: structure learned in one platform (static Xenium) transferred, with no
-retraining, to another (a dynamic EMT course). That is the mechanism by which
-fragmented single-cell data---today siloed by assay---could be stitched into one
-navigable space. We regard the honest, control-at-every-step methodology as part
-of the contribution: the field is accumulating generative models whose sharpness
-hides whether they respect their condition, and the cell-specificity gap is a
-cheap, general antidote.
+The immediate result is modest in scale; the \emph{idea} is not. Once four axes
+share one state, that state becomes a \emph{universal adapter} for biology's
+fragmented data, and several capabilities follow that no single-axis model can
+offer.
 
+\noindent\textbf{Reconstruct a modality a dataset never measured.} Hand a
+decades-old transcriptomic atlas the morphology and spatial context it never
+captured---retroactively enriching millions of existing samples. Our
+time-transfer result is a direct, falsifiable instance: structure learned on
+static Xenium transferred, with no retraining, onto a dynamic EMT course
+($\rho{=}0.50$).
+
+\noindent\textbf{Dissolve platform and batch walls.} Because platforms share
+$S$, a relationship learned on Xenium can transfer to MERFISH or plain
+scRNA-seq---attacking the batch-and-platform fragmentation that fractures the
+field, rather than merely batch-correcting within one assay.
+
+\noindent\textbf{Run in-silico perturbations.} Because $S$ is an intervenable
+world model, one can knock out a gene, add a signal, or change a cell's
+neighbors and roll the state forward to predict the morphological and
+neighborhood consequences before touching a wet lab---and, through the spatial
+axis, watch a perturbation on cell A propagate to neighbor B, a natural language
+for tumor-microenvironment and disease-spread modeling.
+
+\noindent\textbf{A flight simulator for cells.} Rolled through time, the state
+simulates differentiation, EMT, and disease progression. And it scales by
+design: proteomics, ATAC, and live imaging are simply additional windows that
+snap into the same $S$, and the 200k-cell proof here rides the same recipe up
+toward the 100M-cell atlases.
+
+\noindent\textbf{An honesty layer that makes the rest usable.} The result most
+teams would bury---that our \emph{sharpest} diffusion images were hallucinations
+that fit the wrong cell as well as the right one, so we shipped the
+coarse-but-correct reconstruction instead---is, to us, part of the contribution.
+Knowing when a generated axis is real versus fabricated is what makes a virtual
+cell trustworthy enough to generate real hypotheses and prioritize real
+experiments. The field is accumulating generative models whose sharpness hides
+whether they respect their condition; the cell-specificity gap is a cheap,
+general antidote, and we apply it to every one of the four axes.
+
+\FloatBarrier
 \section{Honest Limitations}
 (1) Scale: 200k cells, one tissue---below frontier scale. (2) Morphology is a
 genuinely weak signal; some generated cells remain blob-like. (3) Correlation,
@@ -466,7 +528,6 @@ every step. The frontier gap is scale and native 4D data---not the idea.
 and an interactive public demo were produced during the event on public data
 (10x Xenium CRC; GSE147405), released under the MIT license. The interactive demo---pick a held-out cell,
 generate its morphology from $S$ at an adjustable guidance weight---is public at
-\texttt{alexlee-{}-cell-world-model-demo-web.modal.run} (Modal, scale-to-zero
-A10G).}
+\texttt{alexlee-{}-cell-world-model-demo-web.modal.run}.}
 
 \end{document}

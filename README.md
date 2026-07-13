@@ -4,6 +4,8 @@
 **Event:** Built with Claude — Life Sciences Hackathon (Researcher Track)
 **License:** MIT
 
+### 📄 [**Read the full technical report (PDF)**](report/unified_paper_full.pdf) &nbsp;·&nbsp; 🔴 [**Live demo**](https://alexlee--cell-world-model-demo-web.modal.run)
+
 Single-cell biology is fragmented: expression, morphology, spatial context, and
 time are measured on different platforms, with no shared coordinate system. This
 project builds a **single trained network** in which one 128-dimensional latent
@@ -76,11 +78,10 @@ cell-state-world-model/
 ├── LICENSE                       # MIT
 ├── requirements.txt              # Python dependencies
 ├── report/
-│   ├── unified_paper_full.pdf    # full technical paper (LaTeX)
+│   ├── unified_paper_full.pdf    # full technical paper (LaTeX) — the main report
 │   ├── unified_paper_full.tex    #   └ LaTeX source
-│   ├── unified_report.pdf        # short technical report (LaTeX)
-│   ├── unified_report.tex        #   └ LaTeX source
-│   └── hackathon_summary.txt     # short submission summary
+│   ├── hackathon_summary.txt     # short submission summary
+│   └── demo_video_script.md      # 3-minute demo video script
 ├── src/
 │   ├── 01_data_prep_unified.py   # Xenium → (expr, patches, DINOv2, coords) on a Modal Volume
 │   ├── 02_train_unified.py       # shared encoder E + 3 heads, joint training (A100)
