@@ -4,4 +4,4 @@ dist
 *.tsbuildinfo
 .env
 .env.local
-*.log
+server/*.log

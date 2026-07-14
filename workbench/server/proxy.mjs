@@ -45,11 +45,11 @@ const json = (res, code, obj) =>
 const PLAN_SCHEMA = `Return ONLY a JSON object (no prose) with this shape:
 {
   "mode": "cell" | "trajectory" | "intervene",
-  "cellId": <int 0-3999>,          // the cell to show / start from
-  "end": <int 0-3999>,             // trajectory/intervene destination cell
-  "steps": <int 2-16>,             // number of time frames
+  "cellId": <int 0-199999>,        // the cell to show / start from
+  "end": <int 0-199999>,           // trajectory/intervene destination cell
+  "steps": <int 2-16>,             // number of frames
   "w": <number 0-5>,               // CFG guidance weight (default 3)
-  "intervene": { "at": <int frame index>, "toward": <int 0-3999>, "strength": <number 0-1> },
+  "intervene": { "at": <int frame index>, "toward": <int 0-199999>, "strength": <number 0-1> },
   "rationale": "<one short sentence>"
 }
 Rules:

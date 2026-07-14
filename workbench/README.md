@@ -54,7 +54,8 @@ t >= at :  S(t) = (1 - strength)·S(t) + strength·S_toward
 ```
 
 Verified empirically: `strength = 0` reproduces the plain trajectory byte-for-byte,
-and every frame before `at` is untouched.
+and every frame before `at` is untouched. Each **apply replaces** the frames (it is
+not cumulative) — the history table marks the row currently in effect.
 
 ## Run
 

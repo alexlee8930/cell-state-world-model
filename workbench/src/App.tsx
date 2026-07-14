@@ -433,25 +433,36 @@ export default function App() {
                   {n < 2 && <div className="text-[10px] text-muted">needs a trajectory (ask for a state "over time")</div>}
                 </div>
 
-                <table className="mt-3 w-full font-mono text-[11px]">
+                <div className="mt-3 font-mono text-[9px] uppercase tracking-wider text-muted">
+                  history — each apply replaces the frames; the last row is in effect
+                </div>
+                <table className="w-full font-mono text-[11px]">
                   <thead className="text-muted">
                     <tr className="border-b border-border">
                       <th className="px-1 py-1 text-left font-normal">at t</th>
                       <th className="px-1 py-1 text-left font-normal">toward</th>
                       <th className="px-1 py-1 text-left font-normal">strength</th>
+                      <th className="px-1 py-1 text-right font-normal"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {obj.interventions.length === 0 && (
-                      <tr><td colSpan={3} className="px-1 py-2 text-muted">none applied</td></tr>
+                      <tr><td colSpan={4} className="px-1 py-2 text-muted">none applied</td></tr>
                     )}
-                    {obj.interventions.map((iv) => (
-                      <tr key={iv.id} className="border-b border-border-faint">
-                        <td className="px-1 py-1 text-text">{iv.at}</td>
-                        <td className="px-1 py-1 text-text">{iv.toward}</td>
-                        <td className="px-1 py-1 text-text">{iv.strength.toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {obj.interventions.map((iv, i) => {
+                      const activeRow = i === obj.interventions.length - 1;
+                      return (
+                        <tr key={iv.id} className={cn("border-b border-border-faint", !activeRow && "opacity-50")}>
+                          <td className="px-1 py-1 text-text">{iv.at}</td>
+                          <td className="px-1 py-1 text-text">{iv.toward}</td>
+                          <td className="px-1 py-1 text-text">{iv.strength.toFixed(2)}</td>
+                          <td className="px-1 py-1 text-right text-[9px] uppercase"
+                            style={activeRow ? { color: "var(--series-5)" } : undefined}>
+                            {activeRow ? "active" : "superseded"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
